@@ -1,0 +1,240 @@
+name: Promote both repositories
+
+on:
+  workflow_dispatch:
+    inputs:
+      promote_to:
+        description: Promote dev to integration, or integration to main, in both repositories
+        required: true
+        type: choice
+        options:
+          - integration
+          - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stack-playground-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Owner-only promotion
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Restrict dispatch to the owner and the trusted workflow branch
+        env:
+          ACTOR: ${{ github.actor }}
+          REF: ${{ github.ref }}
+        run: |
+          if [[ "$ACTOR" != "AlejandroLuisHC" ]]; then
+            echo "::error::Only AlejandroLuisHC can run promotions."
+            exit 1
+          fi
+          if [[ "$REF" != "refs/heads/main" ]]; then
+            echo "::error::Run this workflow from main so the protected workflow definition is used."
+            exit 1
+          fi
+
+      - name: Create short-lived, repository-scoped GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.PROMOTION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PROMOTION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            architecture-lab-backend
+            architecture-lab-frontend
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
+
+      - name: Open or reuse promotion PRs in both repositories
+        id: prs
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          PROMOTE_TO: ${{ inputs.promote_to }}
+        run: |
+          set -euo pipefail
+
+          case "$PROMOTE_TO" in
+            integration)
+              source_branch=dev
+              target_branch=integration
+              ;;
+            main)
+              source_branch=integration
+              target_branch=main
+              ;;
+            *)
+              echo "::error::Unsupported promotion target."
+              exit 1
+              ;;
+          esac
+
+          backend_pr=""
+          frontend_pr=""
+
+          for repo in architecture-lab-backend architecture-lab-frontend; do
+            compare_status="$(gh api "repos/$OWNER/$repo/compare/$target_branch...$source_branch" --jq '.status')"
+
+            if [[ "$compare_status" == "identical" || "$compare_status" == "behind" ]]; then
+              echo "::notice::$OWNER/$repo has no new commits to promote to $target_branch."
+              continue
+            fi
+
+            pr_number="$(gh pr list \
+              --repo "$OWNER/$repo" \
+              --state open \
+              --base "$target_branch" \
+              --head "$OWNER:$source_branch" \
+              --json number \
+              --jq '.[0].number // empty')"
+
+            if [[ -z "$pr_number" ]]; then
+              body="$(cat <<'EOF'
+          Automated Stack Playground promotion requested by @$GITHUB_ACTOR.
+
+          The promotion workflow will merge this PR only after both repositories' required CI checks pass.
+          EOF
+          )"
+              pr_url="$(gh pr create \
+                --repo "$OWNER/$repo" \
+                --base "$target_branch" \
+                --head "$OWNER:$source_branch" \
+                --title "Promote $source_branch to $target_branch" \
+                --body "$body")"
+              pr_number="$(gh pr view "$pr_url" --repo "$OWNER/$repo" --json number --jq '.number')"
+            fi
+
+            is_draft="$(gh pr view "$pr_number" --repo "$OWNER/$repo" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" == "true" ]]; then
+              echo "::error::PR #$pr_number in $OWNER/$repo is a draft; mark it ready before running promotion."
+              exit 1
+            fi
+
+            if [[ "$repo" == "architecture-lab-backend" ]]; then
+              backend_pr="$pr_number"
+            else
+              frontend_pr="$pr_number"
+            fi
+          done
+
+          echo "backend_pr=$backend_pr" >> "$GITHUB_OUTPUT"
+          echo "frontend_pr=$frontend_pr" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for both required CI suites
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          BACKEND_PR: ${{ steps.prs.outputs.backend_pr }}
+          FRONTEND_PR: ${{ steps.prs.outputs.frontend_pr }}
+        run: |
+          set -euo pipefail
+
+          wait_for_checks() {
+            local repo="$1"
+            local pr_number="$2"
+            local first_check="$3"
+            local second_check="$4"
+            local empty_required_count=0
+
+            for attempt in $(seq 1 180); do
+              local checks_json
+              checks_json="$(gh pr checks "$pr_number" --repo "$OWNER/$repo" --required --json name,bucket,startedAt,completedAt 2>/dev/null || true)"
+
+              if jq -e 'type == "array"' >/dev/null 2>&1 <<< "$checks_json"; then
+                local required_count
+                required_count="$(jq 'length' <<< "$checks_json")"
+                if [[ "$required_count" == "0" ]]; then
+                  empty_required_count=$((empty_required_count + 1))
+                  if (( empty_required_count >= 12 )); then
+                    echo "::error::No required CI checks were found for $OWNER/$repo. Import and activate its branch rulesets before running promotion."
+                    return 1
+                  fi
+                else
+                  empty_required_count=0
+                fi
+
+                if jq -e --arg first "$first_check" --arg second "$second_check" '
+                  def latest($name): map(select(.name == $name)) | sort_by(.startedAt // .completedAt // "") | .[-1] // {};
+                  latest($first) as $first_result
+                  | latest($second) as $second_result
+                  | ($first_result.bucket == "fail" or $first_result.bucket == "cancel" or $first_result.bucket == "skipping"
+                     or $second_result.bucket == "fail" or $second_result.bucket == "cancel" or $second_result.bucket == "skipping")
+                ' <<< "$checks_json" >/dev/null; then
+                  echo "::error::A required CI check failed, was cancelled, or was skipped in $OWNER/$repo PR #$pr_number."
+                  return 1
+                fi
+
+                if jq -e --arg first "$first_check" --arg second "$second_check" '
+                  def latest($name): map(select(.name == $name)) | sort_by(.startedAt // .completedAt // "") | .[-1] // {};
+                  latest($first) as $first_result
+                  | latest($second) as $second_result
+                  | ($first_result.bucket == "pass" and $second_result.bucket == "pass")
+                ' <<< "$checks_json" >/dev/null; then
+                  echo "::notice::Required CI checks passed for $OWNER/$repo PR #$pr_number."
+                  return 0
+                fi
+              fi
+
+              sleep 10
+            done
+
+            echo "::error::Timed out waiting for required CI checks in $OWNER/$repo PR #$pr_number."
+            return 1
+          }
+
+          backend_pid=""
+          frontend_pid=""
+          if [[ -n "$BACKEND_PR" ]]; then
+            wait_for_checks architecture-lab-backend "$BACKEND_PR" \
+              "Backend CI / branch-flow" "Backend CI / verify" &
+            backend_pid=$!
+          fi
+          if [[ -n "$FRONTEND_PR" ]]; then
+            wait_for_checks architecture-lab-frontend "$FRONTEND_PR" \
+              "Frontend CI / branch-flow" "Frontend CI / verify" &
+            frontend_pid=$!
+          fi
+
+          if [[ -n "$backend_pid" ]] && ! wait "$backend_pid"; then
+            [[ -z "$frontend_pid" ]] || kill "$frontend_pid" 2>/dev/null || true
+            [[ -z "$frontend_pid" ]] || wait "$frontend_pid" 2>/dev/null || true
+            exit 1
+          fi
+          if [[ -n "$frontend_pid" ]]; then
+            wait "$frontend_pid"
+          fi
+
+      - name: Merge backend PR when its required checks are green
+        if: steps.prs.outputs.backend_pr != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          PR_NUMBER: ${{ steps.prs.outputs.backend_pr }}
+        run: |
+          set -euo pipefail
+          head_sha="$(gh pr view "$PR_NUMBER" --repo "$OWNER/architecture-lab-backend" --json headRefOid --jq '.headRefOid')"
+          gh pr merge "$PR_NUMBER" \
+            --repo "$OWNER/architecture-lab-backend" \
+            --merge \
+            --match-head-commit "$head_sha"
+
+      - name: Merge frontend PR when its required checks are green
+        if: steps.prs.outputs.frontend_pr != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          PR_NUMBER: ${{ steps.prs.outputs.frontend_pr }}
+        run: |
+          set -euo pipefail
+          head_sha="$(gh pr view "$PR_NUMBER" --repo "$OWNER/architecture-lab-frontend" --json headRefOid --jq '.headRefOid')"
+          gh pr merge "$PR_NUMBER" \
+            --repo "$OWNER/architecture-lab-frontend" \
+            --merge \
+            --match-head-commit "$head_sha"
