@@ -1,0 +1,10 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Progress is only accessed by the backend through the Admin SDK.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
