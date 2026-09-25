@@ -38,6 +38,9 @@ test('guest API serves the lab, validates choices, and protects saved progress',
     const progress = await fetch(`${base}/me/progress/serverless-web`);
     assert.equal(progress.status, 401);
 
+    const scenarios = await fetch(`${base}/me/scenarios`);
+    assert.equal(scenarios.status, 401);
+
     const unknown = await fetch(`${base}/labs/unknown`);
     assert.equal(unknown.status, 404);
   } finally {
