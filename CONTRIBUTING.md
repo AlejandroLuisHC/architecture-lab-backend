@@ -17,6 +17,7 @@ The normal test command uses the Node test runner and does not need Firebase, Ne
 - Promote `dev` to `integration`, then `integration` to `main`, using PRs and merge commits.
 - PRs into `integration` from any branch other than `dev`, or into `main` from any branch other than `integration`, fail the branch-flow check.
 - `integration` and `main` reject direct updates. Do not force-push or delete protected branches.
+- Run the owner-only **Promote both repositories** workflow from `architecture-lab-backend` to promote both projects together; see [the promotion workflow guide](docs/promotion-workflow.md).
 
 GitHub Actions validates the code only. It does not deploy or publish the backend.
 
