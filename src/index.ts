@@ -1,7 +1,10 @@
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { accountServices, FirebaseUnavailableError } from './firebase.js';
+import { accountServices, authService, FirebaseUnavailableError } from './firebase.js';
+import { ConflictError, createScenario, getProgress, getScenario, importLegacyProgress, LabVersionMismatchError, listRevisions, listScenarios, NotFoundError, saveProgress, updateScenario } from './store.js';
+import { scenarioInputSchema, validateScenarioGraph } from './scenario.js';
+import { DatabaseUnavailableError } from './database.js';
 import {
   configurationSchema,
   evaluateConfiguration,
@@ -13,7 +16,7 @@ import {
 const app = express();
 app.disable('x-powered-by');
 app.use(cors());
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '256kb' }));
 
 const progressSchema = z.object({
   version: z.literal(LAB_VERSION),
@@ -50,7 +53,7 @@ const authenticate = (req: Request, res: Response, next: NextFunction) => {
   }
 
   void (async () => {
-    const { auth } = accountServices();
+    const auth = authService();
     const token = authorization.slice('Bearer '.length).trim();
     const decoded = await auth.verifyIdToken(token);
     res.locals.uid = decoded.uid;
@@ -86,6 +89,20 @@ app.get(
   knownLab,
   authenticate,
   wrap(async (_req, res) => {
+    if (process.env.PROGRESS_STORE === 'postgres') {
+      let progress = await getProgress(res.locals.uid);
+      if (!progress && process.env.LEGACY_FIRESTORE_FALLBACK === 'true') {
+        const sourcePath = `progress/${res.locals.uid}/labs/${LAB_ID}`;
+        const legacyDocument = await accountServices().db.doc(sourcePath).get();
+        if (legacyDocument.exists) {
+          const result = await importLegacyProgress(res.locals.uid, sourcePath, legacyDocument.data() as StoredProgress);
+          if (result === 'unsupported') throw new ConflictError('The older saved run needs manual migration before it can be opened.');
+          progress = await getProgress(res.locals.uid);
+        }
+      }
+      res.json({ progress });
+      return;
+    }
     const { db } = accountServices();
     const document = await db.doc(`progress/${res.locals.uid}/labs/${LAB_ID}`).get();
     if (!document.exists) {
@@ -115,6 +132,17 @@ app.put(
       return;
     }
 
+    if (process.env.PROGRESS_STORE === 'postgres') {
+      try {
+        validateScenarioGraph({ title: lab.title, region: 'us-east-1', workloadAssumptions: {}, configuration: parsed.data.configuration });
+      } catch (error) {
+        res.status(400).json({ code: 'INVALID_CONFIGURATION', message: (error as Error).message });
+        return;
+      }
+      res.json({ progress: await saveProgress(res.locals.uid, parsed.data) });
+      return;
+    }
+
     const { db } = accountServices();
     const reference = db.doc(`progress/${res.locals.uid}/labs/${LAB_ID}`);
     const previous = (await reference.get()).data() as StoredProgress | undefined;
@@ -141,11 +169,49 @@ app.put(
   }),
 );
 
+app.get('/me/scenarios', authenticate, wrap(async (_req, res) => {
+  res.json({ scenarios: await listScenarios(res.locals.uid) });
+}));
+
+app.post('/me/scenarios', authenticate, wrap(async (req, res) => {
+  const parsed = scenarioInputSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ code: 'INVALID_SCENARIO', message: 'Scenario data is invalid.' }); return; }
+  try { validateScenarioGraph(parsed.data); }
+  catch (error) { res.status(400).json({ code: 'INVALID_RELATIONSHIPS', message: (error as Error).message }); return; }
+  res.status(201).json({ scenario: await createScenario(res.locals.uid, parsed.data) });
+}));
+
+app.get('/me/scenarios/:id/revisions', authenticate, wrap(async (req, res) => {
+  res.json({ revisions: await listRevisions(res.locals.uid, String(req.params.id)) });
+}));
+
+app.get('/me/scenarios/:id/revisions/:revision', authenticate, wrap(async (req, res) => {
+  const revision = Number(req.params.revision);
+  if (!Number.isInteger(revision) || revision < 1) { res.status(400).json({ code: 'INVALID_REVISION', message: 'Revision must be a positive integer.' }); return; }
+  res.json({ scenario: await getScenario(res.locals.uid, String(req.params.id), revision) });
+}));
+
+app.get('/me/scenarios/:id', authenticate, wrap(async (req, res) => {
+  res.json({ scenario: await getScenario(res.locals.uid, String(req.params.id)) });
+}));
+
+app.put('/me/scenarios/:id', authenticate, wrap(async (req, res) => {
+  const parsed = scenarioInputSchema.extend({ expectedRevision: z.number().int().min(1) }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ code: 'INVALID_SCENARIO', message: 'Scenario data is invalid.' }); return; }
+  try { validateScenarioGraph(parsed.data); }
+  catch (error) { res.status(400).json({ code: 'INVALID_RELATIONSHIPS', message: (error as Error).message }); return; }
+  res.json({ scenario: await updateScenario(res.locals.uid, String(req.params.id), parsed.data, parsed.data.expectedRevision) });
+}));
+
 app.use((_req, res) => {
   res.status(404).json({ code: 'NOT_FOUND', message: 'Route not found.' });
 });
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (error instanceof NotFoundError) { res.status(404).json({ code: 'NOT_FOUND', message: error.message }); return; }
+  if (error instanceof LabVersionMismatchError) { res.status(409).json({ code: 'LAB_VERSION_MISMATCH', message: error.message }); return; }
+  if (error instanceof ConflictError) { res.status(409).json({ code: 'CONFLICT', message: error.message }); return; }
+  if (error instanceof DatabaseUnavailableError) { res.status(503).json({ code: 'DATABASE_UNAVAILABLE', message: error.message }); return; }
   if (error instanceof FirebaseUnavailableError) {
     res.status(503).json({ code: 'ACCOUNT_UNAVAILABLE', message: error.message });
     return;
