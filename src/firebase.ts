@@ -15,7 +15,7 @@ function firebaseApp() {
   if (!projectId) throw new FirebaseUnavailableError();
 
   // Firebase emulators accept a project ID without a production service account.
-  if (process.env.FIREBASE_AUTH_EMULATOR_HOST && process.env.FIRESTORE_EMULATOR_HOST) {
+  if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
     return initializeApp({ projectId });
   }
 
@@ -32,3 +32,6 @@ export function accountServices() {
   const app = firebaseApp();
   return { auth: getAuth(app), db: getFirestore(app) };
 }
+
+export function authService() { return getAuth(firebaseApp()); }
+export function legacyFirestore() { return getFirestore(firebaseApp()); }
