@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { type AddressInfo } from 'node:net';
 import test from 'node:test';
-import app from './index.js';
-import { initialConfiguration } from './lab.js';
+import app from '../index.js';
+import { initialConfiguration } from '../lab.js';
 
 test('guest API serves the lab, validates choices, and protects saved progress', async () => {
   const server = app.listen(0);
@@ -11,9 +11,10 @@ test('guest API serves the lab, validates choices, and protects saved progress',
   try {
     const lesson = await fetch(`${base}/labs/serverless-web`);
     assert.equal(lesson.status, 200);
-    const lessonBody = await lesson.json() as { lab: { version: number; steps: unknown[] } };
-    assert.equal(lessonBody.lab.version, 1);
+    const lessonBody = await lesson.json() as { lab: { version: number; steps: unknown[]; serviceCatalog: unknown[] } };
+    assert.equal(lessonBody.lab.version, 2);
     assert.equal(lessonBody.lab.steps.length, 4);
+    assert.equal(lessonBody.lab.serviceCatalog.length, 6);
 
     const validation = await fetch(`${base}/labs/serverless-web/validate`, {
       method: 'POST',
@@ -26,6 +27,13 @@ test('guest API serves the lab, validates choices, and protects saved progress',
     };
     assert.equal(validationBody.evaluation.complete, false);
     assert.ok(validationBody.evaluation.steps[0].checks[0].hint.length > 0);
+
+    const malformed = await fetch(`${base}/labs/serverless-web/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ configuration: { resources: [{ id: 'bad', type: 'unknown' }] } }),
+    });
+    assert.equal(malformed.status, 400);
 
     const progress = await fetch(`${base}/me/progress/serverless-web`);
     assert.equal(progress.status, 401);

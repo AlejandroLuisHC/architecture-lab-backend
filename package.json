@@ -7,7 +7,7 @@
     "dev": "tsx watch src/dev.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/dev.js",
-    "test": "tsx --test src/lab.test.ts src/api.test.ts"
+    "test": "tsx --test src/test/lab.test.ts src/test/api.test.ts"
   },
   "engines": {
     "node": ">=22"

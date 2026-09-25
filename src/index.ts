@@ -23,6 +23,7 @@ const progressSchema = z.object({
 
 type ProgressInput = z.infer<typeof progressSchema>;
 type StoredProgress = ProgressInput & {
+  unlockedThroughStep: number;
   updatedAt: string;
   completedAt: string | null;
 };
@@ -117,9 +118,19 @@ app.put(
     const { db } = accountServices();
     const reference = db.doc(`progress/${res.locals.uid}/labs/${LAB_ID}`);
     const previous = (await reference.get()).data() as StoredProgress | undefined;
-    const complete = evaluateConfiguration(parsed.data.configuration).complete;
+    const evaluation = evaluateConfiguration(parsed.data.configuration);
+    const previousUnlock = previous?.version === LAB_VERSION ? previous.unlockedThroughStep : 0;
+    let validatedUnlock = 0;
+    for (let index = 0; index < evaluation.steps.length - 1; index += 1) {
+      if (!evaluation.steps[index].passed) break;
+      validatedUnlock = index + 1;
+    }
+    const unlockedThroughStep = Math.max(previousUnlock ?? 0, validatedUnlock);
+    const complete = evaluation.complete;
     const progress: StoredProgress = {
       ...parsed.data,
+      currentStep: Math.min(parsed.data.currentStep, unlockedThroughStep),
+      unlockedThroughStep,
       updatedAt: new Date().toISOString(),
       completedAt: complete
         ? (previous?.version === LAB_VERSION ? previous.completedAt : null) ?? new Date().toISOString()

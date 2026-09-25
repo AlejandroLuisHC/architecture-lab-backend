@@ -1,4 +1,4 @@
-# Architecture Lab API
+# Stack Playground API
 
 Express and TypeScript API for a guided, simulated AWS architecture lab. The API serves the lesson, evaluates a visitor's choices, and saves signed-in learners' progress in Firestore. It never calls AWS or creates cloud resources.
 
@@ -25,11 +25,11 @@ Apply the included `firestore.rules` to the Firebase project. They deny all dire
 | `GET` | `/labs/serverless-web` | No | Lesson copy, steps, version, initial configuration |
 | `POST` | `/labs/serverless-web/validate` | No | Evaluate `{ configuration }` and return checks, hints, and completion |
 | `GET` | `/me/progress/serverless-web` | Firebase ID token | Return `{ progress }`, or `null` |
-| `PUT` | `/me/progress/serverless-web` | Firebase ID token | Save `{ version, configuration, currentStep }` |
+| `PUT` | `/me/progress/serverless-web` | Firebase ID token | Save `{ version, configuration, currentStep }`; the server derives completion and unlocked stages |
 
 Protected routes take `Authorization: Bearer <Firebase ID token>`. The server verifies the token and uses its UID to select the Firestore document at `progress/{uid}/labs/serverless-web`. The client cannot select another user's document. The server recalculates completion on every save. A saved run from an older lab version returns `409 LAB_VERSION_MISMATCH` when read; writing the current version starts a new run.
 
-The four-stage exercise covers private S3 delivery through CloudFront, API Gateway and Lambda, DynamoDB with restricted IAM access, and CloudWatch logs and alarms. Rules and learner-facing text are in `src/lab.ts`.
+The four-stage exercise covers private S3 delivery through CloudFront, API Gateway and Lambda, DynamoDB with restricted IAM access, and CloudWatch logs and alarms. The versioned configuration is a list of simulated resources with references between services; validation checks those relationships without calling AWS. Rules and learner-facing text are in `src/lab.ts`.
 
 ## Quality checks
 
