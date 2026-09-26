@@ -1,6 +1,6 @@
 # Stack Playground API
 
-Express and TypeScript API for a guided, simulated AWS architecture lab. Firebase Authentication identifies users; PostgreSQL stores scenarios, revisions, module attempts, and progress after migration. It never creates AWS resources.
+Express and TypeScript API for guided and freeform simulated AWS architectures. Firebase Authentication identifies users; PostgreSQL stores scenarios, revisions, module attempts, progress, and saved analysis runs after migration. It never creates AWS resources.
 
 ## Local development
 
@@ -36,18 +36,19 @@ The importer prints source, imported, already-imported, unsupported, and Postgre
 
 ## API contract
 
-| Method | Route | Authentication | Purpose |
-| --- | --- | --- | --- |
-| `GET` | `/labs/serverless-web` | No | Lesson copy, steps, version, initial configuration |
-| `POST` | `/labs/serverless-web/validate` | No | Evaluate `{ configuration }` and return checks, hints, and completion |
-| `GET` | `/me/progress/serverless-web` | Firebase ID token | Return `{ progress }`, or `null` |
-| `PUT` | `/me/progress/serverless-web` | Firebase ID token | Save `{ version, configuration, currentStep }`; the server derives completion and unlocked stages |
-| `GET` | `/me/scenarios` | Firebase ID token | List owned scenarios |
-| `POST` | `/me/scenarios` | Firebase ID token | Create a freeform scenario from `{ title, region, workloadAssumptions?, configuration, relationships? }` |
-| `GET` | `/me/scenarios/:id` | Firebase ID token | Read an owned scenario and current snapshot |
-| `PUT` | `/me/scenarios/:id` | Firebase ID token | Save the same scenario fields plus `expectedRevision` |
-| `GET` | `/me/scenarios/:id/revisions` | Firebase ID token | List immutable revisions |
-| `GET` | `/me/scenarios/:id/revisions/:revision` | Firebase ID token | Read one historical snapshot |
+| Method | Route                                   | Authentication                                                                          | Purpose                                                                                                  |
+| ------ | --------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/labs/serverless-web`                  | No                                                                                      | Lesson copy, steps, version, initial configuration                                                       |
+| `POST` | `/labs/serverless-web/validate`         | No                                                                                      | Evaluate `{ configuration }` and return checks, hints, and completion                                    |
+| `POST` | `/sandbox/analyze`                      | No for ephemeral review; Firebase ID token when associating a run with a saved revision | Return rule-based architecture findings, workload assumptions, and supported AWS Price List estimates    |
+| `GET`  | `/me/progress/serverless-web`           | Firebase ID token                                                                       | Return `{ progress }`, or `null`                                                                         |
+| `PUT`  | `/me/progress/serverless-web`           | Firebase ID token                                                                       | Save `{ version, configuration, currentStep }`; the server derives completion and unlocked stages        |
+| `GET`  | `/me/scenarios`                         | Firebase ID token                                                                       | List owned scenarios                                                                                     |
+| `POST` | `/me/scenarios`                         | Firebase ID token                                                                       | Create a freeform scenario from `{ title, region, workloadAssumptions?, configuration, relationships? }` |
+| `GET`  | `/me/scenarios/:id`                     | Firebase ID token                                                                       | Read an owned scenario and current snapshot                                                              |
+| `PUT`  | `/me/scenarios/:id`                     | Firebase ID token                                                                       | Save the same scenario fields plus `expectedRevision`                                                    |
+| `GET`  | `/me/scenarios/:id/revisions`           | Firebase ID token                                                                       | List immutable revisions                                                                                 |
+| `GET`  | `/me/scenarios/:id/revisions/:revision` | Firebase ID token                                                                       | Read one historical snapshot                                                                             |
 
 Protected routes take `Authorization: Bearer <Firebase ID token>`. The server verifies the token and checks scenario workspace ownership. The client cannot choose another user's UID. The server recalculates completion on every progress save. A saved run from an older lab version returns a conflict through the compatibility progress route; its versioned scenario and snapshot remain available through the scenario API. Writing the current version starts a new attempt.
 
