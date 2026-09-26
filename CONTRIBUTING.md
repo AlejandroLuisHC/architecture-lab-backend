@@ -25,10 +25,10 @@ GitHub Actions validates the code only. It does not deploy or publish the backen
 
 Apply these rules to the matching branch in **Settings → Rules → Rulesets** (or equivalent branch protection settings) after the workflow has run once so its checks are selectable:
 
-| Branch | Required pull request rules | Required status checks | Bypass |
-| --- | --- | --- | --- |
-| `dev` | 1 approval; require code-owner review | `Backend CI / branch-flow`, `Backend CI / verify` | Allow the maintainer to bypass so direct pushes remain possible; CI still runs and reports |
-| `integration` | Require a pull request | `Backend CI / branch-flow`, `Backend CI / verify` | None |
-| `main` | Require a pull request | `Backend CI / branch-flow`, `Backend CI / verify` | None |
+| Branch        | Required pull request rules           | Required status checks                            | Bypass                                                                                     |
+| ------------- | ------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `dev`         | 1 approval; require code-owner review | `Backend CI / branch-flow`, `Backend CI / verify` | Allow the maintainer to bypass so direct pushes remain possible; CI still runs and reports |
+| `integration` | Require a pull request                | `Backend CI / branch-flow`, `Backend CI / verify` | None                                                                                       |
+| `main`        | Require a pull request                | `Backend CI / branch-flow`, `Backend CI / verify` | None                                                                                       |
 
 For all three branches, block force-pushes and deletion. Require merge commits and disable squash/rebase merges in repository settings so promotions preserve ancestry. Do not require an approval on promotion PRs; their source branch and checks are the gate.

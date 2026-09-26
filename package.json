@@ -1,39 +1,50 @@
 {
-  "name": "architecture-lab-backend",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "tsx watch src/dev.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/dev.js",
-    "db:migrate": "tsx src/migrate.ts",
-    "db:import-firestore": "tsx src/import-firestore.ts",
-    "db:import-firestore:apply": "tsx src/import-firestore.ts --apply",
-    "smoke:live": "tsx src/test/live-smoke.ts --run",
-    "test": "tsx --test src/test/*.test.ts"
-  },
-  "engines": {
-    "node": ">=22"
-  },
-  "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "firebase-admin": "^14.5.0",
-    "pg": "^8.23.0",
-    "zod": "^4.6.5"
-  },
-  "overrides": {
-    "jwks-rsa": {
-      "jose": "4.15.9"
+    "name": "architecture-lab-backend",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "tsx watch src/dev.ts",
+        "build": "tsc -p tsconfig.json",
+        "start": "node dist/dev.js",
+        "db:migrate": "tsx src/migrate.ts",
+        "db:import-firestore": "tsx src/import-firestore.ts",
+        "db:import-firestore:apply": "tsx src/import-firestore.ts --apply",
+        "smoke:live": "tsx src/test/live-smoke.ts --run",
+        "test": "tsx --test src/test/*.test.ts",
+        "format": "prettier --write . --ignore-unknown",
+        "format:check": "prettier --check . --ignore-unknown",
+        "lint": "eslint \"src/**/*.ts\""
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "dependencies": {
+        "cors": "^2.8.6",
+        "express": "^5.2.1",
+        "firebase-admin": "^14.5.0",
+        "pg": "^8.23.0",
+        "zod": "^4.6.5"
+    },
+    "overrides": {
+        "jwks-rsa": {
+            "jose": "4.15.9"
+        }
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.6",
+        "@types/node": "^26.6.2",
+        "@types/pg": "^8.23.1",
+        "@typescript/native": "npm:typescript@^7.0.2",
+        "eslint": "^10.11.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-sonarjs": "^4.2.1",
+        "globals": "^17.12.0",
+        "prettier": "^3.9.9",
+        "tsx": "^4.23.15",
+        "typescript": "npm:@typescript/typescript6@^6.0.2",
+        "typescript-eslint": "^8.70.1"
     }
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/node": "^26.6.2",
-    "@types/pg": "^8.23.1",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
-  }
 }
