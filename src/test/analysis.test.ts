@@ -48,6 +48,29 @@ test('freeform AWS resources preserve typed details and explicit connections', (
     );
 });
 
+test('analysis reports inactive simulated resources and explains estimate limits', async () => {
+    const input = analysisRequestSchema.parse({
+        region: 'us-east-1',
+        workloadAssumptions,
+        configuration: {
+            resources: [
+                {
+                    id: 'server',
+                    type: 'awsResource',
+                    schemaVersion: 1,
+                    service: 'ec2',
+                    name: 'server',
+                    settings: {},
+                },
+            ],
+        },
+        simulatedResourceStates: { server: 'stopped' },
+    });
+    const result = await analyzeArchitecture(input);
+    assert.ok(result.findings.some((finding) => finding.id === 'simulated-state-server'));
+    assert.ok(result.estimate.assumptions.some((item) => item.includes('do not adjust')));
+});
+
 test('rules identify exposed storage, broad access, missing monitoring, and single-instance risk', async () => {
     const parsed = analysisRequestSchema.parse({
         region: 'us-east-1',

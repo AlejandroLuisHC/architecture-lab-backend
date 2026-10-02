@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { configurationSchema, type LabConfiguration } from './lab.js';
+import { simulatedResourceStatesSchema, validateSimulatedStates } from './lifecycle.js';
 
 export const relationshipKindSchema = z.enum([
     'uses-origin',
@@ -30,6 +31,7 @@ export const scenarioInputSchema = z.object({
         .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
         .default({}),
     configuration: configurationSchema,
+    simulatedResourceStates: simulatedResourceStatesSchema.optional(),
     relationships: z.array(relationshipSchema).max(160).optional(),
     cloudFormationSource: z.string().max(1_048_576).optional(),
 });
@@ -156,6 +158,7 @@ function isInvalidLink(
 }
 
 export function validateScenarioGraph(input: ScenarioInput): Relationship[] {
+    validateSimulatedStates(input.configuration, input.simulatedResourceStates ?? {});
     const resources = indexResources(input.configuration);
     const derived = derivedRelationships(input.configuration);
     if (!input.relationships) return derived;

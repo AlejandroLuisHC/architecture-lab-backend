@@ -20,6 +20,7 @@ type ScenarioRow = {
     origin: string;
     origin_metadata: object;
     workload_assumptions: object;
+    simulated_resource_states: object;
     current_revision: number;
     created_at: Date;
     updated_at: Date;
@@ -78,6 +79,7 @@ function snapshot(input: ScenarioInput) {
         region: input.region,
         workloadAssumptions: input.workloadAssumptions,
         configuration: input.configuration,
+        simulatedResourceStates: input.simulatedResourceStates ?? {},
         relationships: validateScenarioGraph(input),
         ...(input.cloudFormationSource ? { cloudFormationSource: input.cloudFormationSource } : {}),
     };
@@ -125,7 +127,7 @@ async function createScenarioTx(options: CreateScenarioOptions): Promise<string>
     const originMetadata = options.originMetadata ?? {};
     const id = randomUUID();
     await client.query(
-        'INSERT INTO scenarios(id,workspace_id,title,mode,region,origin,origin_metadata,workload_assumptions,current_revision) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,1)',
+        'INSERT INTO scenarios(id,workspace_id,title,mode,region,origin,origin_metadata,workload_assumptions,simulated_resource_states,current_revision) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,1)',
         [
             id,
             workspaceId,
@@ -135,6 +137,7 @@ async function createScenarioTx(options: CreateScenarioOptions): Promise<string>
             origin,
             JSON.stringify(originMetadata),
             JSON.stringify(input.workloadAssumptions),
+            JSON.stringify(input.simulatedResourceStates ?? {}),
         ],
     );
     await writeResources(client, id, input);
@@ -163,8 +166,15 @@ async function updateScenarioTx(client: PoolClient, row: ScenarioRow, input: Sce
     const revision = row.current_revision + 1;
     await writeResources(client, row.id, input);
     await client.query(
-        'UPDATE scenarios SET title=$2,region=$3,workload_assumptions=$4::jsonb,current_revision=$5,updated_at=now() WHERE id=$1',
-        [row.id, input.title, input.region, JSON.stringify(input.workloadAssumptions), revision],
+        'UPDATE scenarios SET title=$2,region=$3,workload_assumptions=$4::jsonb,simulated_resource_states=$5::jsonb,current_revision=$6,updated_at=now() WHERE id=$1',
+        [
+            row.id,
+            input.title,
+            input.region,
+            JSON.stringify(input.workloadAssumptions),
+            JSON.stringify(input.simulatedResourceStates ?? {}),
+            revision,
+        ],
     );
     await client.query(
         'INSERT INTO scenario_revisions(scenario_id,revision,snapshot) VALUES($1,$2,$3::jsonb)',
@@ -450,6 +460,7 @@ type RecordAnalysisRunOptions = {
     scenarioId: string;
     revision: number;
     configuration: LabConfiguration;
+    simulatedResourceStates: ScenarioInput['simulatedResourceStates'];
     evaluatorVersion: string;
     assumptions: object;
     result: object;
@@ -462,16 +473,36 @@ type RecordAnalysisRunOptions = {
 };
 
 export async function recordAnalysisRun(options: RecordAnalysisRunOptions) {
-    const { uid, scenarioId, revision, configuration, evaluatorVersion, assumptions, result, catalogs } =
-        options;
+    const {
+        uid,
+        scenarioId,
+        revision,
+        configuration,
+        simulatedResourceStates,
+        evaluatorVersion,
+        assumptions,
+        result,
+        catalogs,
+    } = options;
     return transaction(async (client) => {
         await ownedScenario(client, uid, scenarioId);
-        const exists = await client.query<{ snapshot: { configuration: LabConfiguration } }>(
-            'SELECT snapshot FROM scenario_revisions WHERE scenario_id=$1 AND revision=$2',
-            [scenarioId, revision],
-        );
+        const exists = await client.query<{
+            snapshot: {
+                configuration: LabConfiguration;
+                simulatedResourceStates?: ScenarioInput['simulatedResourceStates'];
+            };
+        }>('SELECT snapshot FROM scenario_revisions WHERE scenario_id=$1 AND revision=$2', [
+            scenarioId,
+            revision,
+        ]);
         if (!exists.rows[0]) throw new NotFoundError('Scenario revision not found.');
-        if (!isDeepStrictEqual(exists.rows[0].snapshot.configuration, configuration))
+        if (
+            !isDeepStrictEqual(exists.rows[0].snapshot.configuration, configuration) ||
+            !isDeepStrictEqual(
+                exists.rows[0].snapshot.simulatedResourceStates ?? {},
+                simulatedResourceStates ?? {},
+            )
+        )
             throw new ConflictError(
                 'Analysis input does not match the selected saved revision. Save the architecture before analyzing it.',
             );
