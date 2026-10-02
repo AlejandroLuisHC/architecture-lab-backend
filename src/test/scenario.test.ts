@@ -74,6 +74,36 @@ test('duplicate resource IDs are rejected', () => {
     assert.throws(() => validateScenarioGraph(parsed));
 });
 
+test('simulated lifecycle state accepts supported resources and rejects dangling or incompatible states', () => {
+    const base = scenarioInputSchema.parse({
+        title: 'Lifecycle',
+        region: 'us-east-1',
+        configuration: {
+            resources: [
+                {
+                    id: 'server',
+                    type: 'awsResource',
+                    schemaVersion: 1,
+                    service: 'ec2',
+                    name: 'server',
+                    settings: {},
+                },
+                { id: 'bucket', type: 's3Bucket', name: 'bucket', blockPublicAccess: true },
+            ],
+        },
+        simulatedResourceStates: { server: 'stopped' },
+    });
+    assert.deepEqual(validateScenarioGraph(base), []);
+    assert.throws(
+        () => validateScenarioGraph({ ...base, simulatedResourceStates: { missing: 'stopped' } }),
+        /missing resource/,
+    );
+    assert.throws(
+        () => validateScenarioGraph({ ...base, simulatedResourceStates: { bucket: 'running' } }),
+        /unavailable/,
+    );
+});
+
 test('CloudFormation source, nested properties, and dependency relationships are accepted and retained', () => {
     const source = 'Resources:\n  Bucket:\n    Type: AWS::S3::Bucket\n';
     const parsed = scenarioInputSchema.parse({

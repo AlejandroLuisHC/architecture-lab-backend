@@ -152,6 +152,7 @@ export function createApp(dependencies: AppDependencies = {}) {
                 region: input.region,
                 workloadAssumptions: input.workloadAssumptions,
                 configuration: input.configuration,
+                simulatedResourceStates: input.simulatedResourceStates,
                 relationships: input.relationships,
             });
         } catch (error) {
@@ -203,6 +204,7 @@ export function createApp(dependencies: AppDependencies = {}) {
                 scenarioId: input.scenarioId,
                 revision: input.revision,
                 configuration: input.configuration,
+                simulatedResourceStates: input.simulatedResourceStates,
                 evaluatorVersion: 'rules-v1',
                 assumptions: input.workloadAssumptions,
                 result,
